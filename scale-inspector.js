@@ -24,6 +24,7 @@ const SERIAL_MODES = [
 ];
 const SCAN_TIMEOUT = 3000;
 const DISPLAY_HEX  = true;
+const RESCAN = Symbol('rescan');
 // ──────────────────────────────────────────────────────────────────────────────
 
 const C = {
@@ -140,11 +141,18 @@ async function promptForPort(ports, candidates) {
 
   try {
     while (true) {
-      const answer = (await rl.question(`  ${c('cyan', '?')} Select port [1-${ports.length}] or ${c('dim', 'q to quit')}: `)).trim();
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} Select port [1-${ports.length}], ${c('dim', 'r to rescan')}, or ${c('dim', 'q to quit')}: `,
+      )).trim();
 
       if (/^q(?:uit)?$/i.test(answer)) {
         console.log();
         process.exit(0);
+      }
+
+      if (/^r(?:escan)?$/i.test(answer)) {
+        console.log();
+        return RESCAN;
       }
 
       const index = Number.parseInt(answer, 10);
@@ -155,10 +163,57 @@ async function promptForPort(ports, candidates) {
         return selected.path;
       }
 
-      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold(`1-${ports.length}`)} or ${bold('q')}.\n`);
+      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold(`1-${ports.length}`)}, ${bold('r')}, or ${bold('q')}.\n`);
     }
   } finally {
     rl.close();
+  }
+}
+
+async function promptForRescan() {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Interactive port selection requires a terminal. Use --port <path> instead.');
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} No ports found. Press ${c('dim', 'r to rescan')} or ${c('dim', 'q to quit')}: `,
+      )).trim();
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      if (/^r(?:escan)?$/i.test(answer)) {
+        console.log();
+        return RESCAN;
+      }
+
+      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold('r')} or ${bold('q')}.\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function printPortList(all, candidates) {
+  console.log(`\n\n  ${c('green','✔')} Found ${all.length} port(s):\n`);
+  all.forEach((p, index) => {
+    const recommended = candidates.some(port => port.path === p.path);
+    const flag = recommended ? c('green','★') : c('dim','○');
+    const info = [p.manufacturer, p.vendorId ? `VID:${p.vendorId}` : ''].filter(Boolean).join('  ');
+    console.log(`  ${flag}  ${c('dim', `[${String(index + 1).padStart(2, ' ')}]`)}  ${bold(p.path.padEnd(10))}  ${c('dim', info)}`);
+  });
+  console.log();
+  if (candidates.length > 0) {
+    console.log(`  ${c('dim','★ Recommended ports look like USB/serial adapters.')}\n`);
   }
 }
 
@@ -280,23 +335,24 @@ async function main() {
   // ── Port ──────────────────────────────────────────────────────────────────
   let portPath = argPort;
   if (!portPath) {
-    process.stdout.write(`  ${c('cyan','→')} Scanning serial ports...`);
-    const { all, candidates } = await listPorts();
-    if (all.length === 0) {
-      console.log(`\n\n  ${c('red','✖')} No serial ports found.\n`); process.exit(1);
+    while (!portPath) {
+      process.stdout.write(`  ${c('cyan','→')} Scanning serial ports...`);
+      const { all, candidates } = await listPorts();
+      if (all.length === 0) {
+        console.log(`\n\n  ${c('yellow','!')} No serial ports found.\n`);
+        const action = await promptForRescan();
+        if (action === RESCAN) {
+          continue;
+        }
+      }
+
+      printPortList(all, candidates);
+      const selection = await promptForPort(all, candidates);
+      if (selection === RESCAN) {
+        continue;
+      }
+      portPath = selection;
     }
-    console.log(`\n\n  ${c('green','✔')} Found ${all.length} port(s):\n`);
-    all.forEach((p, index) => {
-      const recommended = candidates.some(port => port.path === p.path);
-      const flag = recommended ? c('green','★') : c('dim','○');
-      const info = [p.manufacturer, p.vendorId ? `VID:${p.vendorId}` : ''].filter(Boolean).join('  ');
-      console.log(`  ${flag}  ${c('dim', `[${String(index + 1).padStart(2, ' ')}]`)}  ${bold(p.path.padEnd(10))}  ${c('dim', info)}`);
-    });
-    console.log();
-    if (candidates.length > 0) {
-      console.log(`  ${c('dim','★ Recommended ports look like USB/serial adapters.')}\n`);
-    }
-    portPath = await promptForPort(all, candidates);
   } else {
     console.log(`  ${c('dim','Port:')} ${c('green', portPath)}  ${c('dim','(--port flag)')}\n`);
   }

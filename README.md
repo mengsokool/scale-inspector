@@ -35,6 +35,11 @@ scale-inspector.exe --port COM3 --baud 9600
 2. **ทดสอบ serial settings** อัตโนมัติ ทั้ง `8N1` และ `7E1` ในแต่ละ baud rate
 3. **แสดงข้อมูล real-time** พร้อม RAW + HEX + น้ำหนักที่ parse แล้ว
 
+ระหว่างหน้าเลือกพอร์ต:
+- พิมพ์เลขเพื่อเลือกพอร์ต
+- พิมพ์ `r` เพื่อ rescan
+- พิมพ์ `q` เพื่อออก
+
 ---
 
 ## ตั้งค่า HP-06 ให้ส่งข้อมูล Stream
@@ -65,7 +70,7 @@ npm run build
 ### Release อัตโนมัติ (GitHub Actions)
 
 ```bash
-git tag v1.0.3
+git tag v1.0.4
 git push --tags
 ```
 
