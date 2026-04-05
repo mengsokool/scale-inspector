@@ -17,7 +17,7 @@ irm https://github.com/mengsokool/scale-inspector/releases/latest/download/insta
 curl -fsSL https://github.com/mengsokool/scale-inspector/releases/latest/download/install.sh | bash
 ```
 
-> แค่นี้เลย — script จะ detect OS เอง โหลด binary ที่ถูก แล้วรันเลย
+> แค่นี้เลย — script จะ detect OS เอง, เช็กเวอร์ชันในเครื่องก่อน, แล้วค่อยโหลดใหม่เฉพาะตอนมีเวอร์ชันใหม่
 
 ---
 
@@ -25,6 +25,8 @@ curl -fsSL https://github.com/mengsokool/scale-inspector/releases/latest/downloa
 
 ```
 scale-inspector.exe                    # auto-detect port + baud
+scale-inspector.exe --manual          # เลือก baud/mode เองผ่านเมนู
+scale-inspector.exe --version          # ดูเวอร์ชันปัจจุบัน
 scale-inspector.exe --port COM3        # ระบุ port เอง
 scale-inspector.exe --port COM3 --mode 7E1
 scale-inspector.exe --port COM3 --baud 9600
@@ -32,13 +34,19 @@ scale-inspector.exe --port COM3 --baud 9600
 
 โปรแกรมจะ:
 1. **Scan หา serial port** และแสดงรายการให้เลือกเอง
-2. **ทดสอบ serial settings** อัตโนมัติ ทั้ง `8N1` และ `7E1` ในแต่ละ baud rate
+2. **ทดสอบ serial settings** อัตโนมัติ ทั้ง `8N1` และ `7E1` ในแต่ละ baud rate แล้วจัดอันดับจากคุณภาพข้อมูลที่อ่านได้
 3. **แสดงข้อมูล real-time** พร้อม RAW + HEX + น้ำหนักที่ parse แล้ว
 
 ระหว่างหน้าเลือกพอร์ต:
 - พิมพ์เลขเพื่อเลือกพอร์ต
 - พิมพ์ `r` เพื่อ rescan
 - พิมพ์ `q` เพื่อออก
+
+หลังเลือกพอร์ต:
+- กด `Enter` เพื่อให้โปรแกรม auto-detect ต่อ
+- พิมพ์ `m` เพื่อเข้าโหมด manual แล้วเลือก baud/mode เอง
+
+ถ้าหลาย baud/mode ได้ข้อมูลพร้อมกัน โปรแกรมอาจให้เลือกยืนยันเองอีกครั้ง
 
 ---
 
@@ -70,7 +78,7 @@ npm run build
 ### Release อัตโนมัติ (GitHub Actions)
 
 ```bash
-git tag v1.0.7
+git tag v1.0.8
 git push --tags
 ```
 
@@ -85,4 +93,6 @@ GitHub Actions จะ build และ release `.exe` + Linux binary ให้อ
 | ไม่เจอ port | ลง driver PCIe card ก่อน |
 | ไม่มีข้อมูลทุก baud | ลอง null modem แทน straight cable |
 | ข้อมูลขยะ (garbage) | baud rate ผิด หรือ serial mode (`8N1` / `7E1`) ไม่ตรง |
+| อยาก fix baud เอง | ใช้ `--manual` หรือ `--baud 2400 --mode 8N1` |
+| auto-detect เลือก baud ผิด | รันด้วย `--baud 2400` หรือเลือกค่าจากหน้าตัวเลือก |
 | timeout ทุก port | HP-06 อาจอยู่ใน Demand mode → กด `[PRINT]` |

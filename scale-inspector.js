@@ -9,11 +9,13 @@
  *
  * Optional flags:
  *   scale-inspector.exe --port COM3
+ *   scale-inspector.exe --manual
  *   scale-inspector.exe --port COM3 --mode 7E1
  *   scale-inspector.exe --port COM3 --baud 9600
  */
 
 import { SerialPort } from 'serialport';
+import { readFileSync } from 'node:fs';
 import readline from 'node:readline/promises';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
@@ -25,6 +27,11 @@ const SERIAL_MODES = [
 const SCAN_TIMEOUT = 3000;
 const DISPLAY_HEX  = true;
 const RESCAN = Symbol('rescan');
+const APP_VERSION = loadAppVersion();
+const DETECT_IDLE_MS = 250;
+const DETECT_SAMPLE_BYTES = 96;
+const DETECT_CONFIDENT_SCORE = 65;
+const DETECT_SCORE_MARGIN = 18;
 // ──────────────────────────────────────────────────────────────────────────────
 
 const C = {
@@ -44,10 +51,27 @@ function failCli(message) {
   process.exit(1);
 }
 
+function loadAppVersion() {
+  try {
+    const packageJson = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8'));
+    return packageJson.version || '0.0.0';
+  } catch {
+    return '0.0.0';
+  }
+}
+
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-let argPort = null, argBaud = null, argMode = null;
+let argPort = null, argBaud = null, argMode = null, argManual = false;
 for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--version' || args[i] === '-v') {
+    console.log(APP_VERSION);
+    process.exit(0);
+  }
+  if (args[i] === '--manual') {
+    argManual = true;
+    continue;
+  }
   if (args[i] === '--port') {
     if (!args[i+1]) failCli('Missing value for --port.');
     argPort = args[++i];
@@ -84,6 +108,10 @@ function printHeader() {
 function normalizeMode(value) {
   const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   return SERIAL_MODES.some(mode => mode.name === normalized) ? normalized : false;
+}
+
+function isInteractiveTerminal() {
+  return Boolean(process.stdin.isTTY && process.stdout.isTTY);
 }
 
 function getSerialMode(name) {
@@ -130,7 +158,7 @@ async function listPorts() {
 }
 
 async function promptForPort(ports, candidates) {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!isInteractiveTerminal()) {
     throw new Error('Interactive port selection requires a terminal. Use --port <path> instead.');
   }
 
@@ -171,7 +199,7 @@ async function promptForPort(ports, candidates) {
 }
 
 async function promptForRescan() {
-  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+  if (!isInteractiveTerminal()) {
     throw new Error('Interactive port selection requires a terminal. Use --port <path> instead.');
   }
 
@@ -217,9 +245,157 @@ function printPortList(all, candidates) {
   }
 }
 
+function getManualBaudChoices() {
+  return [...new Set(BAUD_RATES)].sort((a, b) => a - b);
+}
+
+async function promptForSerialStrategy() {
+  if (!isInteractiveTerminal()) {
+    return 'auto';
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} Serial settings: ${c('dim', 'Enter = auto-detect')}, ${c('dim', 'm = manual')}, ${c('dim', 'q = quit')}: `,
+      )).trim();
+
+      if (answer === '') {
+        console.log();
+        return 'auto';
+      }
+
+      if (/^m(?:anual)?$/i.test(answer)) {
+        console.log();
+        return 'manual';
+      }
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold('Enter')}, ${bold('m')}, or ${bold('q')}.\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptForManualBaud(currentBaud = null) {
+  if (currentBaud !== null) {
+    return currentBaud;
+  }
+
+  if (!isInteractiveTerminal()) {
+    throw new Error('Manual baud selection requires a terminal. Use --baud <rate> instead.');
+  }
+
+  const choices = getManualBaudChoices();
+  console.log(`  ${c('cyan', '→')} Manual serial settings\n`);
+  choices.forEach((baud, index) => {
+    console.log(`  ${c('dim', `[${index + 1}]`)}  ${bold(String(baud))}`);
+  });
+  console.log(`  ${c('dim', '[#]')}  Type any custom baud rate directly`);
+  console.log();
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} Select baud [1-${choices.length}] or type a baud value: `,
+      )).trim();
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      const numeric = Number.parseInt(answer, 10);
+      if (!Number.isInteger(numeric) || numeric <= 0) {
+        console.log(`  ${c('yellow', '!')} Invalid baud. Choose ${bold(`1-${choices.length}`)} or type a positive baud value.\n`);
+        continue;
+      }
+
+      if (numeric >= 1 && numeric <= choices.length && answer === String(numeric)) {
+        const selected = choices[numeric - 1];
+        console.log(`\n  ${c('green', '✔')} Baud: ${c('green', String(selected))}\n`);
+        return selected;
+      }
+
+      console.log(`\n  ${c('green', '✔')} Baud: ${c('green', String(numeric))} ${c('dim', '(custom)')}\n`);
+      return numeric;
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+async function promptForManualMode(currentMode = null) {
+  if (currentMode) {
+    return currentMode;
+  }
+
+  if (!isInteractiveTerminal()) {
+    throw new Error('Manual mode selection requires a terminal. Use --mode <8N1|7E1> instead.');
+  }
+
+  console.log(`  ${c('cyan', '→')} Serial mode\n`);
+  SERIAL_MODES.forEach((mode, index) => {
+    console.log(`  ${c('dim', `[${index + 1}]`)}  ${bold(mode.name)}`);
+  });
+  console.log();
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} Select mode [1-${SERIAL_MODES.length}] or type mode name: `,
+      )).trim();
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      const numeric = Number.parseInt(answer, 10);
+      if (Number.isInteger(numeric) && numeric >= 1 && numeric <= SERIAL_MODES.length && answer === String(numeric)) {
+        const selected = SERIAL_MODES[numeric - 1].name;
+        console.log(`\n  ${c('green', '✔')} Mode: ${c('green', selected)}\n`);
+        return selected;
+      }
+
+      const normalized = normalizeMode(answer);
+      if (normalized) {
+        console.log(`\n  ${c('green', '✔')} Mode: ${c('green', normalized)}\n`);
+        return normalized;
+      }
+
+      console.log(`  ${c('yellow', '!')} Invalid mode. Choose ${bold(`1-${SERIAL_MODES.length}`)} or type ${bold('8N1')} / ${bold('7E1')}.\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
 function tryPortSettings(portPath, settings) {
   return new Promise((resolve) => {
     let buf = Buffer.alloc(0);
+    let idleTimer = null;
+    let finished = false;
     const port = new SerialPort({
       path: portPath,
       baudRate: settings.baudRate,
@@ -230,20 +406,49 @@ function tryPortSettings(portPath, settings) {
     });
 
     const cleanup = (result) => {
+      if (finished) return;
+      finished = true;
+      clearTimeout(timer);
+      clearTimeout(idleTimer);
       if (port.isOpen) port.close(() => resolve(result));
       else resolve(result);
     };
 
-    const timer = setTimeout(() =>
-      cleanup({ success: false, reason: 'timeout', data: buf }), SCAN_TIMEOUT);
+    const finish = (reason) => cleanup({
+      success: buf.length > 0,
+      reason,
+      data: buf,
+      analysis: analyzeSerialData(buf),
+    });
+
+    const timer = setTimeout(() => finish(buf.length > 0 ? 'timeout-with-data' : 'timeout'), SCAN_TIMEOUT);
 
     port.open((err) => {
-      if (err) { clearTimeout(timer); return cleanup({ success: false, reason: err.message, data: buf }); }
+      if (err) {
+        return cleanup({
+          success: false,
+          reason: err.message,
+          data: buf,
+          analysis: analyzeSerialData(buf),
+        });
+      }
       port.on('data', (chunk) => {
         buf = Buffer.concat([buf, chunk]);
-        if (buf.length >= 8) { clearTimeout(timer); cleanup({ success: true, data: buf }); }
+        if (buf.length >= DETECT_SAMPLE_BYTES) {
+          finish('sample-complete');
+          return;
+        }
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => finish('idle'), DETECT_IDLE_MS);
       });
-      port.on('error', (err) => { clearTimeout(timer); cleanup({ success: false, reason: err.message, data: buf }); });
+      port.on('error', (portError) => {
+        cleanup({
+          success: buf.length > 0,
+          reason: portError.message,
+          data: buf,
+          analysis: analyzeSerialData(buf),
+        });
+      });
     });
   });
 }
@@ -259,6 +464,146 @@ function parseScaleData(raw) {
     }
     return { raw: line.trim(), weight: null, unit: null, valid: false };
   });
+}
+
+function analyzeSerialData(raw) {
+  if (!raw || raw.length === 0) {
+    return {
+      score: Number.NEGATIVE_INFINITY,
+      printableRatio: 0,
+      validLines: 0,
+      lineCount: 0,
+      digitCount: 0,
+      unitHits: 0,
+    };
+  }
+
+  let printable = 0;
+  let control = 0;
+  let high = 0;
+  let zero = 0;
+
+  for (const byte of raw) {
+    if (byte === 0x00) zero++;
+    if (byte === 0x09 || byte === 0x0a || byte === 0x0d || (byte >= 0x20 && byte <= 0x7e)) printable++;
+    else if (byte < 0x20 || byte === 0x7f) control++;
+    else high++;
+  }
+
+  const text = raw.toString('ascii').replace(/[^\x09\x0a\x0d\x20-\x7e]/g, '?');
+  const lines = text.split(/[\r\n]+/).map(line => line.trim()).filter(Boolean);
+  const parsed = parseScaleData(raw);
+  const validLines = parsed.filter(line => line.valid).length;
+  const digitCount = (text.match(/\d/g) || []).length;
+  const unitHits = (text.match(/\b(?:kg|lb|g|t)\b/ig) || []).length;
+  const questionCount = (text.match(/\?/g) || []).length;
+  const printableRatio = printable / raw.length;
+  const controlRatio = control / raw.length;
+  const highRatio = high / raw.length;
+  const zeroRatio = zero / raw.length;
+  const questionRatio = questionCount / raw.length;
+
+  const score = Math.round(
+    printableRatio * 70
+      - controlRatio * 90
+      - highRatio * 50
+      - zeroRatio * 120
+      - questionRatio * 40
+      + Math.min(validLines * 40, 80)
+      + Math.min(lines.length * 6, 18)
+      + Math.min(digitCount * 1.2, 18)
+      + Math.min(unitHits * 15, 30),
+  );
+
+  return {
+    score,
+    printableRatio,
+    validLines,
+    lineCount: lines.length,
+    digitCount,
+    unitHits,
+  };
+}
+
+function compareDetectionResults(left, right) {
+  return (
+    right.result.analysis.score - left.result.analysis.score
+    || right.result.analysis.validLines - left.result.analysis.validLines
+    || right.result.analysis.printableRatio - left.result.analysis.printableRatio
+    || right.result.data.length - left.result.data.length
+  );
+}
+
+function detectionConfidence(analysis) {
+  if (analysis.validLines > 0 || analysis.score >= 90) return 'high';
+  if (analysis.score >= DETECT_CONFIDENT_SCORE) return 'medium';
+  return 'low';
+}
+
+function formatDetectionSummary(analysis) {
+  const confidence = detectionConfidence(analysis);
+  const label = confidence === 'high'
+    ? c('green', 'high confidence')
+    : confidence === 'medium'
+      ? c('yellow', 'medium confidence')
+      : c('dim', 'low confidence');
+  const hints = [];
+  if (analysis.validLines > 0) hints.push(`${analysis.validLines} parsed`);
+  else if (analysis.printableRatio >= 0.85) hints.push('text-like');
+  else if (analysis.printableRatio <= 0.55) hints.push('garbled');
+  return hints.length > 0 ? `${label} ${c('dim', `(${hints.join(', ')})`)}` : label;
+}
+
+function printSettingCandidates(candidates) {
+  console.log(`\n  ${c('yellow', '!')} Multiple serial settings returned data. Choose one:\n`);
+  candidates.forEach((candidate, index) => {
+    const recommended = index === 0;
+    const flag = recommended ? c('green', '★') : c('dim', '○');
+    console.log(
+      `  ${flag}  ${c('dim', `[${String(index + 1).padStart(2, ' ')}]`)}  ${bold(formatAttempt(candidate.settings).padEnd(10))}  ${c('dim', `${candidate.result.data.length} bytes`)}  ${formatDetectionSummary(candidate.result.analysis)}`,
+    );
+  });
+  console.log();
+  console.log(`  ${c('dim', 'Press Enter to accept the recommended option.')}\n`);
+}
+
+async function promptForSerialSettings(candidates) {
+  if (!isInteractiveTerminal()) {
+    return candidates[0];
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(
+        `  ${c('cyan', '?')} Select serial setting [1-${candidates.length}], ${c('dim', 'Enter for recommended')}, or ${c('dim', 'q to quit')}: `,
+      )).trim();
+
+      if (answer === '') {
+        console.log();
+        return candidates[0];
+      }
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      const index = Number.parseInt(answer, 10);
+      if (Number.isInteger(index) && index >= 1 && index <= candidates.length) {
+        console.log();
+        return candidates[index - 1];
+      }
+
+      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold(`1-${candidates.length}`)}, ${bold('Enter')}, or ${bold('q')}.\n`);
+    }
+  } finally {
+    rl.close();
+  }
 }
 
 function hexDump(buf) {
@@ -364,9 +709,28 @@ async function main() {
     console.log(`  ${c('dim','Baud:')} ${c('green', String(selectedSettings.baudRate))}  ${c('dim','(--baud flag)')}`);
     console.log(`  ${c('dim','Mode:')} ${c('green', formatSerialMode(selectedSettings))}  ${c('dim','(--mode flag)')}\n`);
   } else {
+    let detectionStrategy = 'auto';
+    if (argManual) {
+      detectionStrategy = 'manual';
+    } else if (argBaud === null && !argMode) {
+      detectionStrategy = await promptForSerialStrategy();
+    }
+
+    if (detectionStrategy === 'manual') {
+      if (!isInteractiveTerminal() && (argBaud === null || !argMode)) {
+        failCli('Manual selection requires a terminal. Use --baud <rate> and --mode <8N1|7E1> together.');
+      }
+
+      const selectedBaud = await promptForManualBaud(argBaud);
+      const selectedModeName = await promptForManualMode(argMode);
+      selectedSettings = { ...getSerialMode(selectedModeName), baudRate: selectedBaud };
+      console.log(`  ${c('dim','Baud:')} ${c('green', String(selectedSettings.baudRate))}  ${argBaud !== null ? c('dim','(--baud flag)') : c('dim','(manual)')}`);
+      console.log(`  ${c('dim','Mode:')} ${c('green', formatSerialMode(selectedSettings))}  ${argMode ? c('dim','(--mode flag)') : c('dim','(manual)')}\n`);
+    } else {
     const bauds = argBaud !== null ? [argBaud] : BAUD_RATES;
     const modes = argMode ? [getSerialMode(argMode)] : SERIAL_MODES;
     const attempts = bauds.flatMap(baudRate => modes.map(mode => ({ ...mode, baudRate })));
+    const attemptResults = [];
 
     console.log(`  ${c('cyan','→')} Auto-detecting serial settings...`);
     console.log(`  ${c('dim',`  Testing: ${attempts.map(formatAttempt).join(' → ')}`)}\n`);
@@ -374,18 +738,42 @@ async function main() {
     for (const settings of attempts) {
       process.stdout.write(`  ${c('dim','  Testing')} ${String(settings.baudRate).padEnd(6)} ${formatSerialMode(settings).padEnd(4)} ... `);
       const result = await tryPortSettings(portPath, settings);
-      if (result.success) {
-        selectedSettings = settings;
-        console.log(c('green', `✔  got ${result.data.length} bytes`));
-        console.log(`\n  ${c('green','✔')} Serial settings: ${bold(c('white', formatAttempt(settings)))}\n`);
-        console.log(`  ${c('dim','First bytes received:')}`);
-        console.log(hexDump(result.data.slice(0, 32)));
-        console.log();
-        break;
+      attemptResults.push({ settings, result });
+      if (result.data.length > 0) {
+        console.log(`  ${c('green', '✔')} got ${result.data.length} bytes, ${formatDetectionSummary(result.analysis)}`);
       } else {
         console.log(result.reason === 'timeout' ? c('dim','timeout') : c('red', result.reason.slice(0,30)));
       }
     }
+
+    const candidates = attemptResults
+      .filter(candidate => candidate.result.data.length > 0)
+      .sort(compareDetectionResults);
+
+    if (candidates.length > 0) {
+      let selectedCandidate = candidates[0];
+      const secondCandidate = candidates[1] || null;
+      const bestAnalysis = selectedCandidate.result.analysis;
+      const bestIsStrong = bestAnalysis.validLines > 0 || bestAnalysis.score >= DETECT_CONFIDENT_SCORE;
+      const bestHasClearMargin = !secondCandidate
+        || bestAnalysis.validLines > secondCandidate.result.analysis.validLines
+        || bestAnalysis.score - secondCandidate.result.analysis.score >= DETECT_SCORE_MARGIN;
+
+      if (process.stdin.isTTY && process.stdout.isTTY && candidates.length > 1 && (!bestIsStrong || !bestHasClearMargin)) {
+        printSettingCandidates(candidates);
+        selectedCandidate = await promptForSerialSettings(candidates);
+      }
+
+      selectedSettings = selectedCandidate.settings;
+      console.log(`\n  ${c('green','✔')} Serial settings: ${bold(c('white', formatAttempt(selectedSettings)))}  ${formatDetectionSummary(selectedCandidate.result.analysis)}\n`);
+      if (detectionConfidence(selectedCandidate.result.analysis) === 'low') {
+        console.log(`  ${c('yellow', '!')} Auto-detect confidence is low. If output looks garbled, rerun with ${bold('--baud <rate>')} or ${bold('--mode 7E1')}.\n`);
+      }
+      console.log(`  ${c('dim','First bytes received:')}`);
+      console.log(hexDump(selectedCandidate.result.data.slice(0, 32)));
+      console.log();
+    }
+
     if (!selectedSettings) {
       console.log(`\n  ${c('red','✖')} No data on any tested serial settings.\n`);
       console.log(`  ${c('yellow','Hints:')}`);
@@ -395,6 +783,7 @@ async function main() {
       console.log(`    • Try pressing [PRINT] on the scale`);
       console.log();
       process.exit(1);
+    }
     }
   }
 
