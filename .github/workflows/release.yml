@@ -73,7 +73,9 @@ jobs:
             install.sh
           generate_release_notes: true
           body: |
-            ## ⚖ HP-06 Scale Inspector
+            ## Scale Inspector
+
+            Cross-platform CLI for inspecting serial output from scales and other RS-232 or USB-serial devices.
 
             ### Windows — PowerShell (1 บรรทัด)
             ```powershell
@@ -86,4 +88,4 @@ jobs:
             ```
 
             ---
-            Auto-detects: port, baud rate, OS, CPU arch.
+            Features: interactive port selection, auto/manual serial settings, and cached installer updates.

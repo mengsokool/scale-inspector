@@ -1,4 +1,4 @@
-# install.ps1 — HP-06 Scale Inspector installer for Windows
+# install.ps1 — Scale Inspector installer for Windows
 # Usage: irm https://github.com/mengsokool/scale-inspector/releases/latest/download/install.ps1 | iex
 
 $repo    = "mengsokool/scale-inspector"
@@ -19,7 +19,7 @@ if ((Get-Command Invoke-WebRequest).Parameters.ContainsKey("UseBasicParsing")) {
 
 Write-Host ""
 Write-Host "  ==========================================" -ForegroundColor Cyan
-Write-Host "    HP-06 Scale Inspector installer" -ForegroundColor Cyan
+Write-Host "    Scale Inspector installer" -ForegroundColor Cyan
 Write-Host "  ==========================================" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Target: $dest" -ForegroundColor DarkGray

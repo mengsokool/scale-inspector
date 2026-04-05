@@ -1,98 +1,102 @@
-# ⚖ HP-06 Scale Inspector
+# Scale Inspector
 
-Dev tool สำหรับดึงข้อมูลจากตาชั่งรถบรรทุก Commandor HP-06 ผ่าน RS-232  
-**ไม่ต้องลง Node.js หรือ runtime ใดๆ บนเครื่องลูกค้า**
+Scale Inspector is a cross-platform command-line utility for inspecting serial output from scales and other RS-232 or USB-serial devices. It helps identify the correct port, baud rate, and framing mode, then shows the live stream in raw, hex, and parsed forms.
 
----
+## Features
 
-## ติดตั้งบนเครื่องลูกค้า (1 บรรทัด)
+- Interactive serial port selection with rescan support
+- Automatic detection of common serial settings, ranked by payload quality
+- Manual baud rate and framing selection when auto-detection is not enough
+- Live monitor output with raw text, hex bytes, and parsed weight values
+- Single-binary releases for Windows, macOS, and Linux
+- Installers that reuse the local binary when it is already up to date
+
+## Installation
 
 ### Windows (PowerShell)
+
 ```powershell
 irm https://github.com/mengsokool/scale-inspector/releases/latest/download/install.ps1 | iex
 ```
 
 ### Linux / macOS (bash)
+
 ```bash
 curl -fsSL https://github.com/mengsokool/scale-inspector/releases/latest/download/install.sh | bash
 ```
 
-> แค่นี้เลย — script จะ detect OS เอง, เช็กเวอร์ชันในเครื่องก่อน, แล้วค่อยโหลดใหม่เฉพาะตอนมีเวอร์ชันใหม่
+The installer detects the current platform, checks the installed version, and only downloads a new binary when needed.
 
----
+## Usage
 
-## การใช้งาน
-
-```
-scale-inspector.exe                    # auto-detect port + baud
-scale-inspector.exe --manual          # เลือก baud/mode เองผ่านเมนู
-scale-inspector.exe --version          # ดูเวอร์ชันปัจจุบัน
-scale-inspector.exe --port COM3        # ระบุ port เอง
+```text
+scale-inspector.exe
+scale-inspector.exe --manual
+scale-inspector.exe --version
+scale-inspector.exe --port COM3
 scale-inspector.exe --port COM3 --mode 7E1
-scale-inspector.exe --port COM3 --baud 9600
+scale-inspector.exe --port COM3 --baud 2400 --mode 8N1
 ```
 
-โปรแกรมจะ:
-1. **Scan หา serial port** และแสดงรายการให้เลือกเอง
-2. **ทดสอบ serial settings** อัตโนมัติ ทั้ง `8N1` และ `7E1` ในแต่ละ baud rate แล้วจัดอันดับจากคุณภาพข้อมูลที่อ่านได้
-3. **แสดงข้อมูล real-time** พร้อม RAW + HEX + น้ำหนักที่ parse แล้ว
+Default flow:
 
-ระหว่างหน้าเลือกพอร์ต:
-- พิมพ์เลขเพื่อเลือกพอร์ต
-- พิมพ์ `r` เพื่อ rescan
-- พิมพ์ `q` เพื่อออก
+- Select a serial port from the interactive list
+- Press `Enter` to continue with auto-detection
+- Type `m` to switch to manual baud and mode selection
+- Type `r` to rescan ports
+- Type `q` to quit
 
-หลังเลือกพอร์ต:
-- กด `Enter` เพื่อให้โปรแกรม auto-detect ต่อ
-- พิมพ์ `m` เพื่อเข้าโหมด manual แล้วเลือก baud/mode เอง
+When multiple baud or framing combinations return data, Scale Inspector can ask for confirmation instead of assuming the first result is correct.
 
-ถ้าหลาย baud/mode ได้ข้อมูลพร้อมกัน โปรแกรมอาจให้เลือกยืนยันเองอีกครั้ง
+## Device Notes
 
----
+Scale Inspector is not tied to a specific vendor or indicator model. It works best with devices that emit readable serial data continuously or on demand.
 
-## ตั้งค่า HP-06 ให้ส่งข้อมูล Stream
+Example configuration for a Commandor HP-06 running in stream mode:
 
-เข้าเมนูบนตาชั่ง: `[FUNC] + [MODE]` → ตั้งค่าระบบ
+| Function | Setting | Recommended value |
+|----------|---------|-------------------|
+| F-01     | Output  | `3` (`Stream mode`) |
+| F-02     | Baud    | `4` (`9600`) |
+| F-03     | Parity  | `1` (`7E1`) or `0` (`8N1`) |
 
-| Function | รายการ        | ค่าที่แนะนำ |
-|----------|---------------|------------|
-| F-01     | การส่งสัญญาณ  | `3` (Stream mode) |
-| F-02     | Baud rate     | `4` (= 9600) |
-| F-03     | Parity        | `1` (= 7,E,1) หรือ `0` (= 8,N,1) |
+## Build From Source
 
----
+Requirements:
 
-## Dev: Build เอง
-
-ต้องการ Node.js และ npm
+- Node.js
+- npm
 
 ```bash
 npm install
-
-# Build executable สำหรับ OS/CPU ของเครื่องที่กำลังใช้อยู่
 npm run build
 ```
 
-`npm run build` จะ pin ขั้น build ไปที่ Node.js 22.16.0 อัตโนมัติ เพื่อให้ SEA binary ออกมาเสถียรเหมือนใน CI
+The build step pins Node.js `22.16.0` for SEA packaging so local output matches CI.
 
-### Release อัตโนมัติ (GitHub Actions)
+## Release
 
 ```bash
-git tag v1.0.8
+git tag v1.0.9
 git push --tags
 ```
 
-GitHub Actions จะ build และ release `.exe` + Linux binary ให้อัตโนมัติ
+GitHub Actions builds release binaries for Windows, macOS, and Linux, then publishes them as GitHub Release assets.
 
----
+## Contributing
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for local setup, scope, and release notes.
+
+## License
+
+This project is licensed under the [MIT License](./LICENSE).
 
 ## Troubleshooting
 
-| อาการ | สาเหตุที่เป็นไปได้ |
-|-------|-------------------|
-| ไม่เจอ port | ลง driver PCIe card ก่อน |
-| ไม่มีข้อมูลทุก baud | ลอง null modem แทน straight cable |
-| ข้อมูลขยะ (garbage) | baud rate ผิด หรือ serial mode (`8N1` / `7E1`) ไม่ตรง |
-| อยาก fix baud เอง | ใช้ `--manual` หรือ `--baud 2400 --mode 8N1` |
-| auto-detect เลือก baud ผิด | รันด้วย `--baud 2400` หรือเลือกค่าจากหน้าตัวเลือก |
-| timeout ทุก port | HP-06 อาจอยู่ใน Demand mode → กด `[PRINT]` |
+| Symptom | Notes |
+|---------|-------|
+| No serial ports found | Check drivers, USB adapters, and cable connections |
+| No data at any baud | Check cable type, device transmit mode, or trigger a print/send action on the device |
+| Garbled output | Baud rate or framing mode is likely incorrect |
+| Auto-detection picks the wrong baud | Use `--manual` or pass `--baud` and `--mode` explicitly |
+| No continuous stream | Enable stream/continuous transmit mode on the device if available |

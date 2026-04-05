@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * ┌─────────────────────────────────────────┐
- * │   HP-06 Scale Inspector  •  Dev Tool    │
- * │ Scan ports, detect serial settings live │
+ * │     Scale Inspector  •  Serial Tool     │
+ * │ Inspect ports and live serial streams   │
  * └─────────────────────────────────────────┘
  *
  * Built as a standalone executable via Node SEA — no Node/npm needed on target machine.
@@ -100,7 +100,7 @@ function printHeader() {
   console.clear();
   console.log();
   console.log(c('cyan', bold('  ╔══════════════════════════════════════════╗')));
-  console.log(c('cyan', bold('  ║')) + c('white', bold('   ⚖  HP-06 Scale Inspector  •  Dev Mode  ')) + c('cyan', bold('║')));
+  console.log(c('cyan', bold('  ║')) + c('white', bold('      Scale Inspector  •  Serial Tool      ')) + c('cyan', bold('║')));
   console.log(c('cyan', bold('  ╚══════════════════════════════════════════╝')));
   console.log();
 }
@@ -778,9 +778,10 @@ async function main() {
       console.log(`\n  ${c('red','✖')} No data on any tested serial settings.\n`);
       console.log(`  ${c('yellow','Hints:')}`);
       console.log(`    • Check cable (straight vs null modem)`);
-      console.log(`    • HP-06 Stream mode: F-01 = 3`);
-      console.log(`    • HP-06 serial mode: F-03 = 1 (7E1) or 0 (8N1)`);
-      console.log(`    • Try pressing [PRINT] on the scale`);
+      console.log(`    • Enable stream or continuous transmit mode on the device`);
+      console.log(`    • Verify the expected serial framing, such as 7E1 or 8N1`);
+      console.log(`    • If the device is demand-based, trigger a print or send action`);
+      console.log(`    • For Commandor HP-06: F-01 = 3, F-03 = 1 (7E1) or 0 (8N1)`);
       console.log();
       process.exit(1);
     }

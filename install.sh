@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# install.sh — HP-06 Scale Inspector installer for Linux/macOS
+# install.sh — Scale Inspector installer for Linux/macOS
 # Usage: curl -fsSL https://github.com/mengsokool/scale-inspector/releases/latest/download/install.sh | bash
 
 set -e
@@ -113,7 +113,7 @@ LATEST_VERSION="$(fetch_latest_version || true)"
 
 echo ""
 echo "  ╔══════════════════════════════════════════╗"
-echo "  ║   ⚖  HP-06 Scale Inspector  installer   ║"
+echo "  ║       Scale Inspector installer         ║"
 echo "  ╚══════════════════════════════════════════╝"
 echo ""
 echo "  OS: $OS / $ARCH"
