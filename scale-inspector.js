@@ -2,20 +2,26 @@
 /**
  * ┌─────────────────────────────────────────┐
  * │   HP-06 Scale Inspector  •  Dev Tool    │
- * │   Auto-scan port + baud, show raw data  │
+ * │ Scan ports, detect serial settings live │
  * └─────────────────────────────────────────┘
  *
- * Built as single .exe via Bun — no Node/npm needed on target machine.
+ * Built as a standalone executable via Node SEA — no Node/npm needed on target machine.
  *
  * Optional flags:
  *   scale-inspector.exe --port COM3
+ *   scale-inspector.exe --port COM3 --mode 7E1
  *   scale-inspector.exe --port COM3 --baud 9600
  */
 
 import { SerialPort } from 'serialport';
+import readline from 'node:readline/promises';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BAUD_RATES   = [9600, 4800, 19200, 2400, 1200];
+const SERIAL_MODES = [
+  { name: '8N1', dataBits: 8, parity: 'none', stopBits: 1 },
+  { name: '7E1', dataBits: 7, parity: 'even', stopBits: 1 },
+];
 const SCAN_TIMEOUT = 3000;
 const DISPLAY_HEX  = true;
 // ──────────────────────────────────────────────────────────────────────────────
@@ -32,13 +38,37 @@ const C = {
 };
 function c(color, text) { return `${C[color]}${text}${C.reset}`; }
 function bold(text)      { return `${C.bold}${text}${C.reset}`; }
+function failCli(message) {
+  console.error(`\n  ${C.red}✖ ${message}${C.reset}\n`);
+  process.exit(1);
+}
 
 // ─── CLI args ─────────────────────────────────────────────────────────────────
 const args = process.argv.slice(2);
-let argPort = null, argBaud = null;
+let argPort = null, argBaud = null, argMode = null;
 for (let i = 0; i < args.length; i++) {
-  if (args[i] === '--port' && args[i+1]) argPort = args[++i];
-  if (args[i] === '--baud' && args[i+1]) argBaud = parseInt(args[++i]);
+  if (args[i] === '--port') {
+    if (!args[i+1]) failCli('Missing value for --port.');
+    argPort = args[++i];
+    continue;
+  }
+  if (args[i] === '--baud') {
+    if (!args[i+1]) failCli('Missing value for --baud.');
+    argBaud = parseInt(args[++i]);
+    continue;
+  }
+  if (args[i] === '--mode') {
+    if (!args[i+1]) failCli('Missing value for --mode.');
+    argMode = normalizeMode(args[++i]);
+  }
+}
+
+if (argBaud !== null && (!Number.isInteger(argBaud) || argBaud <= 0)) {
+  failCli('Invalid baud rate. Use a positive integer.');
+}
+
+if (argMode === false) {
+  failCli('Invalid mode. Supported values: 8N1, 7E1.');
 }
 
 function printHeader() {
@@ -50,31 +80,97 @@ function printHeader() {
   console.log();
 }
 
-async function listPorts() {
-  const ports = await SerialPort.list();
-  const candidates = ports.filter(p => {
-    const path = (p.path || '').toUpperCase();
-    const mfr  = (p.manufacturer || '').toLowerCase();
-    return (
-      /COM\d+/.test(path) ||
-      path.includes('TTYS') || path.includes('TTYUSB') ||
-      mfr.includes('serial') || mfr.includes('prolific') ||
-      mfr.includes('ftdi') || mfr.includes('ch340') ||
-      mfr.includes('silicon') || p.vendorId
-    );
-  });
-  return { all: ports, candidates };
+function normalizeMode(value) {
+  const normalized = String(value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return SERIAL_MODES.some(mode => mode.name === normalized) ? normalized : false;
 }
 
-function tryPortBaud(portPath, baud) {
+function getSerialMode(name) {
+  return SERIAL_MODES.find(mode => mode.name === name);
+}
+
+function formatSerialMode(settings) {
+  return settings.name || `${settings.dataBits}${settings.parity === 'none' ? 'N' : settings.parity[0].toUpperCase()}${settings.stopBits}`;
+}
+
+function formatAttempt(settings) {
+  return `${settings.baudRate}/${formatSerialMode(settings)}`;
+}
+
+function scorePort(port) {
+  const path = (port.path || '').toLowerCase();
+  const manufacturer = (port.manufacturer || '').toLowerCase();
+  let score = 0;
+
+  if (/^com\d+$/i.test(port.path || '')) score += 80;
+  if (path.startsWith('/dev/cu.')) score += 70;
+  if (path.startsWith('/dev/ttyusb') || path.startsWith('/dev/ttyacm')) score += 70;
+  if (/usbserial|usbmodem|ttyusb|ttyacm|serial/.test(path)) score += 55;
+  if (manufacturer.includes('serial') || manufacturer.includes('prolific') || manufacturer.includes('ftdi') ||
+      manufacturer.includes('ch340') || manufacturer.includes('silicon') || manufacturer.includes('cp210')) score += 35;
+  if (port.vendorId) score += 20;
+  if (/bluetooth|incoming-port|debug-console/.test(path)) score -= 120;
+  if (path.startsWith('/dev/tty.')) score -= 10;
+
+  return score;
+}
+
+async function listPorts() {
+  const ports = await SerialPort.list();
+  const ranked = ports
+    .map((port, index) => ({ ...port, _score: scorePort(port), _index: index }))
+    .sort((a, b) => b._score - a._score || a._index - b._index);
+  const all = ranked.map(({ _score, _index, ...port }) => port);
+  const candidates = ranked
+    .filter(port => port._score > 0)
+    .map(({ _score, _index, ...port }) => port);
+
+  return { all, candidates };
+}
+
+async function promptForPort(ports, candidates) {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) {
+    throw new Error('Interactive port selection requires a terminal. Use --port <path> instead.');
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  try {
+    while (true) {
+      const answer = (await rl.question(`  ${c('cyan', '?')} Select port [1-${ports.length}] or ${c('dim', 'q to quit')}: `)).trim();
+
+      if (/^q(?:uit)?$/i.test(answer)) {
+        console.log();
+        process.exit(0);
+      }
+
+      const index = Number.parseInt(answer, 10);
+      if (Number.isInteger(index) && index >= 1 && index <= ports.length) {
+        const selected = ports[index - 1];
+        const recommended = candidates.some(port => port.path === selected.path);
+        console.log(`\n  ${c('green', '✔')} Selected: ${c('green', selected.path)}${recommended ? ` ${c('dim', '(recommended)')}` : ''}\n`);
+        return selected.path;
+      }
+
+      console.log(`  ${c('yellow', '!')} Invalid selection. Choose ${bold(`1-${ports.length}`)} or ${bold('q')}.\n`);
+    }
+  } finally {
+    rl.close();
+  }
+}
+
+function tryPortSettings(portPath, settings) {
   return new Promise((resolve) => {
     let buf = Buffer.alloc(0);
     const port = new SerialPort({
       path: portPath,
-      baudRate: baud,
-      dataBits: 8,
-      parity: 'none',
-      stopBits: 1,
+      baudRate: settings.baudRate,
+      dataBits: settings.dataBits,
+      parity: settings.parity,
+      stopBits: settings.stopBits,
       autoOpen: false,
     });
 
@@ -121,16 +217,22 @@ function hexDump(buf) {
   return lines.join('\n');
 }
 
-function startMonitor(portPath, baud) {
+function startMonitor(portPath, settings) {
   console.log();
   console.log(c('cyan', '  ╔══════════════════════════════════════════╗'));
   console.log(c('cyan', '  ║') + bold('          📡  LIVE MONITOR MODE           ') + c('cyan', '║'));
   console.log(c('cyan', '  ╚══════════════════════════════════════════╝'));
-  console.log(`\n  ${c('dim','Port')}  ${c('green', portPath)}   ${c('dim','Baud')}  ${c('green', String(baud))}`);
+  console.log(`\n  ${c('dim','Port')}  ${c('green', portPath)}   ${c('dim','Baud')}  ${c('green', String(settings.baudRate))}   ${c('dim','Mode')}  ${c('green', formatSerialMode(settings))}`);
   console.log(`  ${c('dim','Press Ctrl+C to exit')}\n`);
   console.log('  ' + '─'.repeat(58));
 
-  const port = new SerialPort({ path: portPath, baudRate: baud, dataBits: 8, parity: 'none', stopBits: 1 });
+  const port = new SerialPort({
+    path: portPath,
+    baudRate: settings.baudRate,
+    dataBits: settings.dataBits,
+    parity: settings.parity,
+    stopBits: settings.stopBits,
+  });
   let lineBuf = '', pktCount = 0;
 
   port.on('open', () => console.log(`  ${c('green','●')} Port opened\n`));
@@ -184,30 +286,42 @@ async function main() {
       console.log(`\n\n  ${c('red','✖')} No serial ports found.\n`); process.exit(1);
     }
     console.log(`\n\n  ${c('green','✔')} Found ${all.length} port(s):\n`);
-    all.forEach(p => {
-      const flag = candidates.includes(p) ? c('green','★') : c('dim','○');
+    all.forEach((p, index) => {
+      const recommended = candidates.some(port => port.path === p.path);
+      const flag = recommended ? c('green','★') : c('dim','○');
       const info = [p.manufacturer, p.vendorId ? `VID:${p.vendorId}` : ''].filter(Boolean).join('  ');
-      console.log(`  ${flag}  ${bold(p.path.padEnd(10))}  ${c('dim', info)}`);
+      console.log(`  ${flag}  ${c('dim', `[${String(index + 1).padStart(2, ' ')}]`)}  ${bold(p.path.padEnd(10))}  ${c('dim', info)}`);
     });
     console.log();
-    portPath = (candidates[0] || all[0]).path;
-    console.log(`  ${c('dim','Auto-selected:')} ${c('green', portPath)}\n`);
+    if (candidates.length > 0) {
+      console.log(`  ${c('dim','★ Recommended ports look like USB/serial adapters.')}\n`);
+    }
+    portPath = await promptForPort(all, candidates);
   } else {
     console.log(`  ${c('dim','Port:')} ${c('green', portPath)}  ${c('dim','(--port flag)')}\n`);
   }
 
   // ── Baud ──────────────────────────────────────────────────────────────────
-  let baud = argBaud;
-  if (!baud) {
-    console.log(`  ${c('cyan','→')} Auto-detecting baud rate...`);
-    console.log(`  ${c('dim',`  Testing: ${BAUD_RATES.join(' → ')}`)}\n`);
-    for (const b of BAUD_RATES) {
-      process.stdout.write(`  ${c('dim','  Testing')} ${String(b).padEnd(6)} ... `);
-      const result = await tryPortBaud(portPath, b);
+  let selectedSettings = null;
+  if (argBaud !== null && argMode) {
+    selectedSettings = { ...getSerialMode(argMode), baudRate: argBaud };
+    console.log(`  ${c('dim','Baud:')} ${c('green', String(selectedSettings.baudRate))}  ${c('dim','(--baud flag)')}`);
+    console.log(`  ${c('dim','Mode:')} ${c('green', formatSerialMode(selectedSettings))}  ${c('dim','(--mode flag)')}\n`);
+  } else {
+    const bauds = argBaud !== null ? [argBaud] : BAUD_RATES;
+    const modes = argMode ? [getSerialMode(argMode)] : SERIAL_MODES;
+    const attempts = bauds.flatMap(baudRate => modes.map(mode => ({ ...mode, baudRate })));
+
+    console.log(`  ${c('cyan','→')} Auto-detecting serial settings...`);
+    console.log(`  ${c('dim',`  Testing: ${attempts.map(formatAttempt).join(' → ')}`)}\n`);
+
+    for (const settings of attempts) {
+      process.stdout.write(`  ${c('dim','  Testing')} ${String(settings.baudRate).padEnd(6)} ${formatSerialMode(settings).padEnd(4)} ... `);
+      const result = await tryPortSettings(portPath, settings);
       if (result.success) {
-        baud = b;
+        selectedSettings = settings;
         console.log(c('green', `✔  got ${result.data.length} bytes`));
-        console.log(`\n  ${c('green','✔')} Baud rate: ${bold(c('white', String(baud)))}\n`);
+        console.log(`\n  ${c('green','✔')} Serial settings: ${bold(c('white', formatAttempt(settings)))}\n`);
         console.log(`  ${c('dim','First bytes received:')}`);
         console.log(hexDump(result.data.slice(0, 32)));
         console.log();
@@ -216,21 +330,20 @@ async function main() {
         console.log(result.reason === 'timeout' ? c('dim','timeout') : c('red', result.reason.slice(0,30)));
       }
     }
-    if (!baud) {
-      console.log(`\n  ${c('red','✖')} No data on any baud rate.\n`);
+    if (!selectedSettings) {
+      console.log(`\n  ${c('red','✖')} No data on any tested serial settings.\n`);
       console.log(`  ${c('yellow','Hints:')}`);
       console.log(`    • Check cable (straight vs null modem)`);
       console.log(`    • HP-06 Stream mode: F-01 = 3`);
+      console.log(`    • HP-06 serial mode: F-03 = 1 (7E1) or 0 (8N1)`);
       console.log(`    • Try pressing [PRINT] on the scale`);
       console.log();
       process.exit(1);
     }
-  } else {
-    console.log(`  ${c('dim','Baud:')} ${c('green', String(baud))}  ${c('dim','(--baud flag)')}\n`);
   }
 
   await new Promise(r => setTimeout(r, 400));
-  startMonitor(portPath, baud);
+  startMonitor(portPath, selectedSettings);
 }
 
 main().catch(err => {

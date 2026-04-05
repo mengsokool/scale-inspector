@@ -26,12 +26,13 @@ curl -fsSL https://github.com/mengsokool/scale-inspector/releases/latest/downloa
 ```
 scale-inspector.exe                    # auto-detect port + baud
 scale-inspector.exe --port COM3        # ระบุ port เอง
+scale-inspector.exe --port COM3 --mode 7E1
 scale-inspector.exe --port COM3 --baud 9600
 ```
 
 โปรแกรมจะ:
-1. **Scan หา serial port** อัตโนมัติ
-2. **ทดสอบ baud rate** ทีละค่า (9600 → 4800 → 19200 → ...)
+1. **Scan หา serial port** และแสดงรายการให้เลือกเอง
+2. **ทดสอบ serial settings** อัตโนมัติ ทั้ง `8N1` และ `7E1` ในแต่ละ baud rate
 3. **แสดงข้อมูล real-time** พร้อม RAW + HEX + น้ำหนักที่ parse แล้ว
 
 ---
@@ -50,22 +51,21 @@ scale-inspector.exe --port COM3 --baud 9600
 
 ## Dev: Build เอง
 
-ต้องการ [Bun](https://bun.sh)
+ต้องการ Node.js และ npm
 
 ```bash
-bun install
+npm install
 
-# Build Windows exe
-bun run build:win
-
-# Build Linux binary  
-bun run build:linux
+# Build executable สำหรับ OS/CPU ของเครื่องที่กำลังใช้อยู่
+npm run build
 ```
+
+`npm run build` จะ pin ขั้น build ไปที่ Node.js 22.16.0 อัตโนมัติ เพื่อให้ SEA binary ออกมาเสถียรเหมือนใน CI
 
 ### Release อัตโนมัติ (GitHub Actions)
 
 ```bash
-git tag v1.0.0
+git tag v1.0.3
 git push --tags
 ```
 
@@ -79,5 +79,5 @@ GitHub Actions จะ build และ release `.exe` + Linux binary ให้อ
 |-------|-------------------|
 | ไม่เจอ port | ลง driver PCIe card ก่อน |
 | ไม่มีข้อมูลทุก baud | ลอง null modem แทน straight cable |
-| ข้อมูลขยะ (garbage) | baud rate ผิด หรือ parity ไม่ตรง |
+| ข้อมูลขยะ (garbage) | baud rate ผิด หรือ serial mode (`8N1` / `7E1`) ไม่ตรง |
 | timeout ทุก port | HP-06 อาจอยู่ใน Demand mode → กด `[PRINT]` |
