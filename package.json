@@ -1,6 +1,6 @@
 {
   "name": "scale-inspector",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "HP-06 truck scale serial inspector — auto port/baud detection",
   "type": "module",
   "main": "scale-inspector.js",

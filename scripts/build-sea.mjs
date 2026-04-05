@@ -33,7 +33,12 @@ function run(command, args) {
 }
 
 function quoteForCmd(arg) {
-  return `"${String(arg).replace(/"/g, '""')}"`;
+  const value = String(arg);
+  if (!/[\s"]/u.test(value)) {
+    return value;
+  }
+
+  return `"${value.replace(/"/g, '""')}"`;
 }
 
 function runPostject(args) {
