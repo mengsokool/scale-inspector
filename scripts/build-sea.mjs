@@ -38,7 +38,7 @@ function quoteForCmd(arg) {
 
 function runPostject(args) {
   if (process.platform === 'win32') {
-    const commandLine = ['npx', ...args].map(quoteForCmd).join(' ');
+    const commandLine = ['npx', ...args.map(quoteForCmd)].join(' ');
     run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', commandLine]);
     return;
   }
