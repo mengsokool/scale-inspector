@@ -104,6 +104,15 @@ fetch_latest_version() {
   printf '%s\n' "$release_json" | sed -nE 's/.*"tag_name"[[:space:]]*:[[:space:]]*"v?([^"]+)".*/\1/p' | head -n 1
 }
 
+run_installed_binary() {
+  if [ -t 0 ] || [ ! -r /dev/tty ]; then
+    "$DEST" "$@"
+    return
+  fi
+
+  "$DEST" "$@" </dev/tty
+}
+
 pick_target
 INSTALLED_VERSION=""
 if [ -f "${DEST}.version" ]; then
@@ -164,4 +173,4 @@ if [ "$DEST_SCOPE" = "local" ]; then
     echo ""
 fi
 
-"$DEST" "$@"
+run_installed_binary "$@"

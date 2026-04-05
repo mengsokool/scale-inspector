@@ -1,6 +1,6 @@
 {
   "name": "scale-inspector",
-  "version": "1.0.9",
+  "version": "1.0.10",
   "description": "Cross-platform CLI for inspecting serial output from scales and RS-232 devices",
   "type": "module",
   "main": "scale-inspector.js",

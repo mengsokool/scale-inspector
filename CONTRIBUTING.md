@@ -52,7 +52,7 @@ When opening a pull request:
 Releases are published from Git tags:
 
 ```bash
-git tag v1.0.9
+git tag v1.0.10
 git push --tags
 ```
 

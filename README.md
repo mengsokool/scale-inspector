@@ -77,7 +77,7 @@ The build step pins Node.js `22.16.0` for SEA packaging so local output matches 
 ## Release
 
 ```bash
-git tag v1.0.9
+git tag v1.0.10
 git push --tags
 ```
 
