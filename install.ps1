@@ -1,7 +1,7 @@
 # install.ps1 — HP-06 Scale Inspector installer for Windows
-# Usage: irm https://github.com/YOUR_USERNAME/scale-inspector/releases/latest/download/install.ps1 | iex
+# Usage: irm https://github.com/mengsokool/scale-inspector/releases/latest/download/install.ps1 | iex
 
-$repo    = "YOUR_USERNAME/scale-inspector"
+$repo    = "mengsokool/scale-inspector"
 $binary  = "scale-inspector.exe"
 $dest    = "$env:TEMP\$binary"
 $release = "https://github.com/$repo/releases/latest/download/$binary"
