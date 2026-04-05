@@ -32,6 +32,20 @@ function run(command, args) {
   });
 }
 
+function quoteForCmd(arg) {
+  return `"${String(arg).replace(/"/g, '""')}"`;
+}
+
+function runPostject(args) {
+  if (process.platform === 'win32') {
+    const commandLine = ['npx', ...args].map(quoteForCmd).join(' ');
+    run(process.env.ComSpec || 'cmd.exe', ['/d', '/s', '/c', commandLine]);
+    return;
+  }
+
+  run('npx', args);
+}
+
 function toAssetKey(relativePath) {
   return relativePath.split(path.sep).join('/');
 }
@@ -131,7 +145,6 @@ if (process.platform === 'darwin') {
   run('codesign', ['--remove-signature', outputPath]);
 }
 
-const npxCommand = process.platform === 'win32' ? 'npx.cmd' : 'npx';
 const postjectArgs = [
   '--yes',
   'postject',
@@ -146,7 +159,7 @@ if (process.platform === 'darwin') {
   postjectArgs.push('--macho-segment-name', 'NODE_SEA');
 }
 
-run(npxCommand, postjectArgs);
+runPostject(postjectArgs);
 
 if (process.platform === 'darwin') {
   run('codesign', ['--sign', '-', outputPath]);
