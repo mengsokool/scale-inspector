@@ -47,9 +47,9 @@ echo ""
 # ── Download ──────────────────────────────────────────────────────────────────
 TMP="$(mktemp)"
 if command -v curl &>/dev/null; then
-    curl -fsSL "$URL" -o "$TMP"
+    curl -L -# "$URL" -o "$TMP"
 elif command -v wget &>/dev/null; then
-    wget -qO "$TMP" "$URL"
+    wget -O "$TMP" "$URL"
 else
     echo "✖ Need curl or wget" && exit 1
 fi
