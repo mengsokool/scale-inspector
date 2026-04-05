@@ -1,0 +1,91 @@
+name: Build & Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            target: bun-windows-x64
+            out: scale-inspector.exe
+          - os: ubuntu-latest
+            target: bun-linux-x64
+            out: scale-inspector-linux-x64
+          - os: ubuntu-latest
+            target: bun-linux-arm64
+            out: scale-inspector-linux-arm64
+          - os: macos-latest
+            target: bun-darwin-x64
+            out: scale-inspector-macos-x64
+          - os: macos-latest
+            target: bun-darwin-arm64
+            out: scale-inspector-macos-arm64
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun install
+
+      - name: Build binary
+        run: bun build scale-inspector.js --compile --target=${{ matrix.target }} --outfile=dist/${{ matrix.out }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.out }}
+          path: dist/${{ matrix.out }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/scale-inspector.exe
+            dist/scale-inspector-linux-x64
+            dist/scale-inspector-linux-arm64
+            dist/scale-inspector-macos-x64
+            dist/scale-inspector-macos-arm64
+            install.ps1
+            install.sh
+          generate_release_notes: true
+          body: |
+            ## ⚖ HP-06 Scale Inspector
+
+            ### Windows — PowerShell (1 บรรทัด)
+            ```powershell
+            irm https://github.com/${{ github.repository }}/releases/latest/download/install.ps1 | iex
+            ```
+
+            ### Linux / macOS — bash (1 บรรทัด)
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/latest/download/install.sh | bash
+            ```
+
+            ---
+            Auto-detects: port, baud rate, OS, CPU arch.
