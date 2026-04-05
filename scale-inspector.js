@@ -12,7 +12,7 @@
  *   scale-inspector.exe --port COM3 --baud 9600
  */
 
-const { SerialPort } = require('serialport');
+import { SerialPort } from 'serialport';
 
 // ─── Config ───────────────────────────────────────────────────────────────────
 const BAUD_RATES   = [9600, 4800, 19200, 2400, 1200];
